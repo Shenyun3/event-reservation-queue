@@ -1,0 +1,194 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>20人并发压测实验室 - 活动预约平台</title>
+  <link rel="stylesheet" href="wireframe.css" />
+</head>
+<body>
+  <div id="topbar-mount"></div>
+
+  <main class="container">
+    <div id="guard-container"></div>
+
+    <div id="stress-content">
+      <div class="page-header">
+        <div>
+          <h1>模拟 20 人并发抢购调试页（管理员工具）</h1>
+          <div class="muted">前端一键模拟 Promise.all 并发发起抢购请求，直观校验防超卖强一致性、候补顺位分配与审计日志。</div>
+        </div>
+        <a id="detail-jump" class="btn" href="event-detail.html">前往该活动详情页查看队列 →</a>
+      </div>
+
+      <section class="box">
+        <div class="box-title">压测参数配置</div>
+        <div class="actions-row" style="margin-top:0;">
+          <label>
+            目标活动：
+            <select id="event-select"></select>
+          </label>
+          <label>
+            并发人数：
+            <input id="concurrency-input" type="number" min="1" max="50" value="20" style="width:76px;" />
+          </label>
+          <button id="clear-event-btn">先清空该活动预约（方便从 0 抢购）</button>
+          <button id="run-rush-btn" class="primary">🚀 发起并发抢购（模拟 Promise.all）</button>
+        </div>
+      </section>
+
+      <section class="box">
+        <div class="box-title">
+          <span>目标活动实时名额状态</span>
+          <span id="consistency-badge" class="tag">等待压测</span>
+        </div>
+        <div class="grid-4" id="event-kpi"></div>
+      </section>
+
+      <section class="box" id="result-box" style="display:none;">
+        <div class="box-title">
+          <span>本次并发压测结果汇总</span>
+          <span id="result-summary" class="muted"></span>
+        </div>
+        <table>
+          <thead>
+            <tr>
+              <th>#</th>
+              <th>模拟用户</th>
+              <th>Idempotency-Key</th>
+              <th>返回结果</th>
+              <th>候补顺位</th>
+              <th>耗时</th>
+              <th>审计追踪</th>
+            </tr>
+          </thead>
+          <tbody id="result-tbody"></tbody>
+        </table>
+      </section>
+    </div>
+  </main>
+
+  <script src="app.js"></script>
+  <script>
+    const params = new URLSearchParams(window.location.search);
+    let selectedEventId = params.get('eventId') || null;
+    let lastResults = null;
+
+    function render() {
+      DemoApp.renderTopbar('stress', render);
+      const state = DemoApp.loadState();
+      const adminMode = DemoApp.isAdmin(state);
+
+      const guardEl = document.getElementById('guard-container');
+      const contentEl = document.getElementById('stress-content');
+
+      if (!adminMode) {
+        contentEl.style.display = 'none';
+        guardEl.style.display = 'block';
+        DemoApp.renderAdminOnlyGuard('guard-container', '20 人并发压测实验室', render);
+        return;
+      }
+
+      guardEl.style.display = 'none';
+      contentEl.style.display = 'block';
+
+      if (!selectedEventId || !state.events.some((e) => e.id === selectedEventId)) {
+        selectedEventId = state.events[0] ? state.events[0].id : null;
+      }
+
+      const select = document.getElementById('event-select');
+      const sig = state.events.map((e) => `${e.id}:${e.name}:${e.capacity}`).join('|');
+      if (select.dataset.sig !== sig) {
+        select.innerHTML = state.events
+          .map((e) => `<option value="${e.id}">${e.name}（容量 ${e.capacity}）</option>`)
+          .join('');
+        select.dataset.sig = sig;
+      }
+      if (document.activeElement !== select) {
+        select.value = selectedEventId;
+      }
+
+      document.getElementById('detail-jump').href = `event-detail.html?id=${encodeURIComponent(selectedEventId || '')}`;
+
+      const stats = DemoApp.getEventStats(state, selectedEventId);
+      if (!stats) return;
+
+      const badge = document.getElementById('consistency-badge');
+      badge.textContent = stats.oversold
+        ? `❌ 发现超卖：${stats.occupied} > ${stats.capacity}`
+        : `✅ 强一致无超卖（occupied ${stats.occupied} <= capacity ${stats.capacity}）`;
+      badge.className = stats.oversold ? 'tag tag-EXPIRED' : 'tag tag-CONFIRMED';
+
+      document.getElementById('event-kpi').innerHTML = `
+        <div class="kpi"><div class="kpi-label">已确认</div><div class="kpi-value">${stats.confirmed}</div></div>
+        <div class="kpi"><div class="kpi-label">待确认锁单</div><div class="kpi-value">${stats.pending}</div></div>
+        <div class="kpi"><div class="kpi-label">剩余可用</div><div class="kpi-value">${stats.available} / ${stats.capacity}</div></div>
+        <div class="kpi"><div class="kpi-label">候补队列总数</div><div class="kpi-value">${stats.waitlisted}</div></div>
+      `;
+
+      if (lastResults) {
+        document.getElementById('result-box').style.display = 'block';
+        const locked = lastResults.filter((r) => r.ok && r.reservation.status === 'PENDING_CONFIRM').length;
+        const waitlisted = lastResults.filter((r) => r.ok && r.reservation.status === 'WAITLISTED').length;
+        const failed = lastResults.filter((r) => !r.ok).length;
+        document.getElementById('result-summary').textContent =
+          `共 ${lastResults.length} 请求：成功锁单 ${locked} ｜ 进入候补 ${waitlisted} ｜ 拒绝 ${failed}`;
+
+        const tbody = document.getElementById('result-tbody');
+        tbody.innerHTML = lastResults
+          .map(
+            (r) => `
+          <tr>
+            <td>${r.index}</td>
+            <td>${r.userName}</td>
+            <td class="mono">${r.idempotencyKey}</td>
+            <td>
+              ${
+                r.ok
+                  ? `<span class="tag tag-${r.reservation.status}">${r.reservation.status}</span> <span class="mono muted">${r.reservation.id}</span>`
+                  : `<span class="tag tag-EXPIRED">FAILED: ${r.error}</span>`
+              }
+            </td>
+            <td>${r.rank ? '#' + r.rank : '-'}</td>
+            <td class="mono">${r.latencyMs} ms</td>
+            <td>${r.ok ? `<button data-audit="${r.reservation.id}">审计日志</button>` : '-'}</td>
+          </tr>
+        `
+          )
+          .join('');
+
+        tbody.querySelectorAll('[data-audit]').forEach((btn) => {
+          btn.addEventListener('click', () => DemoApp.openAuditDrawer(btn.dataset.audit));
+        });
+      }
+    }
+
+    document.getElementById('event-select').addEventListener('change', (e) => {
+      selectedEventId = e.target.value;
+      lastResults = null;
+      document.getElementById('result-box').style.display = 'none';
+      render();
+    });
+
+    document.getElementById('clear-event-btn').addEventListener('click', () => {
+      if (!selectedEventId) return;
+      DemoApp.clearEventReservations(selectedEventId);
+      lastResults = null;
+      document.getElementById('result-box').style.display = 'none';
+      DemoApp.showToast('已清空该活动所有预约，可从 0 开始压测');
+      render();
+    });
+
+    document.getElementById('run-rush-btn').addEventListener('click', () => {
+      if (!selectedEventId) return;
+      const count = Math.max(1, Math.min(50, Number(document.getElementById('concurrency-input').value) || 20));
+      lastResults = DemoApp.simulateConcurrentRush(selectedEventId, count);
+      DemoApp.showToast(`已完成 ${count} 人并发抢购模拟，已校验无超卖！`);
+      render();
+    });
+
+    render();
+    DemoApp.startAutoWorker(render);
+  </script>
+</body>
+</html>

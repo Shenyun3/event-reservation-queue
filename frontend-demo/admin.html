@@ -1,0 +1,183 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>运营管理台 - 活动预约平台</title>
+  <link rel="stylesheet" href="wireframe.css" />
+</head>
+<body>
+  <div id="topbar-mount"></div>
+
+  <main class="container" id="admin-root">
+    <div id="guard-container"></div>
+
+    <div id="admin-content">
+      <div class="page-header">
+        <div>
+          <h1>运营管理台（Admin）</h1>
+          <div class="muted">创建限量活动、配置名额与锁单超时时间，并全局监控各活动实时看板与超时回收巡检。</div>
+        </div>
+        <a class="btn" href="index.html">← 返回活动大厅</a>
+      </div>
+
+      <section class="box">
+        <div class="box-title">
+          <span>平台实时总览</span>
+          <span class="muted mono" id="worker-time"></span>
+        </div>
+        <div class="grid-4" id="global-kpi"></div>
+      </section>
+
+      <section class="box">
+        <div class="box-title">创建新活动</div>
+        <form id="create-event-form">
+          <div class="form-grid">
+            <div class="field">
+              <label>活动名称 *</label>
+              <input id="f-name" required placeholder="例如：春季咖啡品鉴会（限量 5 席）" />
+            </div>
+            <div class="field">
+              <label>开始时间 *</label>
+              <input id="f-start" required value="2026-12-01 14:00" />
+            </div>
+            <div class="field">
+              <label>结束时间 *</label>
+              <input id="f-end" required value="2026-12-01 16:00" />
+            </div>
+            <div class="field">
+              <label>总名额上限（Capacity）*</label>
+              <input id="f-capacity" type="number" min="1" value="5" required />
+            </div>
+            <div class="field">
+              <label>单人限购数（MaxPerUser）*</label>
+              <input id="f-max" type="number" min="1" value="1" required />
+            </div>
+            <div class="field">
+              <label>支付/确认超时（秒，默认 600 秒 = 10 分钟）*</label>
+              <input id="f-timeout" type="number" min="10" value="600" required />
+            </div>
+          </div>
+          <div class="actions-row">
+            <span class="muted">超时快捷设置：</span>
+            <button type="button" data-timeout="30">30 秒（演示超时回收用）</button>
+            <button type="button" data-timeout="60">1 分钟</button>
+            <button type="button" data-timeout="600">10 分钟（默认）</button>
+            <button type="submit" class="primary" style="margin-left:auto;">创建活动并发布</button>
+          </div>
+        </form>
+      </section>
+
+      <section class="box">
+        <div class="box-title">全部活动实时看板</div>
+        <table>
+          <thead>
+            <tr>
+              <th>ID</th>
+              <th>活动名称</th>
+              <th>规则（容量/限购/超时）</th>
+              <th>已确认</th>
+              <th>待确认</th>
+              <th>剩余可用</th>
+              <th>候补人数</th>
+              <th>操作</th>
+            </tr>
+          </thead>
+          <tbody id="admin-events-tbody"></tbody>
+        </table>
+      </section>
+    </div>
+  </main>
+
+  <script src="app.js"></script>
+  <script>
+    function render() {
+      DemoApp.renderTopbar('admin', render);
+      const state = DemoApp.loadState();
+      const adminMode = DemoApp.isAdmin(state);
+
+      const guardEl = document.getElementById('guard-container');
+      const contentEl = document.getElementById('admin-content');
+
+      if (!adminMode) {
+        contentEl.style.display = 'none';
+        guardEl.style.display = 'block';
+        DemoApp.renderAdminOnlyGuard('guard-container', '运营管理台', render);
+        return;
+      }
+
+      guardEl.style.display = 'none';
+      contentEl.style.display = 'block';
+
+      let totalCap = 0;
+      let totalConfirmed = 0;
+      let totalPending = 0;
+      let totalWaitlist = 0;
+
+      state.events.forEach((ev) => {
+        const s = DemoApp.getEventStats(state, ev.id);
+        totalCap += s.capacity;
+        totalConfirmed += s.confirmed;
+        totalPending += s.pending;
+        totalWaitlist += s.waitlisted;
+      });
+
+      document.getElementById('worker-time').textContent =
+        '上次超时巡检：' + DemoApp.formatTime(state.lastWorkerRunAt);
+
+      document.getElementById('global-kpi').innerHTML = `
+        <div class="kpi"><div class="kpi-label">活动总数 / 总名额</div><div class="kpi-value">${state.events.length} / ${totalCap}</div></div>
+        <div class="kpi"><div class="kpi-label">全局已确认</div><div class="kpi-value">${totalConfirmed}</div></div>
+        <div class="kpi"><div class="kpi-label">全局待确认锁单</div><div class="kpi-value">${totalPending}</div></div>
+        <div class="kpi"><div class="kpi-label">全局候补排队</div><div class="kpi-value">${totalWaitlist}</div></div>
+      `;
+
+      const tbody = document.getElementById('admin-events-tbody');
+      tbody.innerHTML = state.events
+        .map((ev) => {
+          const s = DemoApp.getEventStats(state, ev.id);
+          return `
+            <tr>
+              <td class="mono">${ev.id}</td>
+              <td><strong>${ev.name}</strong><div class="muted">${ev.startTime} ~ ${ev.endTime}</div></td>
+              <td>容量 ${ev.capacity} / 限购 ${ev.maxPerUser} / 超时 ${ev.confirmTimeoutSec}s</td>
+              <td>${s.confirmed}</td>
+              <td>${s.pending}</td>
+              <td>${s.available}</td>
+              <td>${s.waitlisted}</td>
+              <td>
+                <a class="btn" href="event-detail.html?id=${encodeURIComponent(ev.id)}">查看详情与队列</a>
+                <a class="btn" href="stress-test.html?eventId=${encodeURIComponent(ev.id)}">并发压测</a>
+              </td>
+            </tr>
+          `;
+        })
+        .join('');
+    }
+
+    document.querySelectorAll('[data-timeout]').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        document.getElementById('f-timeout').value = btn.dataset.timeout;
+      });
+    });
+
+    document.getElementById('create-event-form').addEventListener('submit', (e) => {
+      e.preventDefault();
+      const ev = DemoApp.createEvent({
+        name: document.getElementById('f-name').value.trim(),
+        startTime: document.getElementById('f-start').value.trim(),
+        endTime: document.getElementById('f-end').value.trim(),
+        capacity: document.getElementById('f-capacity').value,
+        maxPerUser: document.getElementById('f-max').value,
+        confirmTimeoutSec: document.getElementById('f-timeout').value
+      });
+      DemoApp.showToast(`活动「${ev.name}」已创建（${ev.id}）`);
+      document.getElementById('f-name').value = '';
+      render();
+    });
+
+    render();
+    DemoApp.startAutoWorker(render);
+  </script>
+</body>
+</html>

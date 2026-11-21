@@ -1,0 +1,175 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>活动大厅 - 活动预约平台</title>
+  <link rel="stylesheet" href="wireframe.css" />
+</head>
+<body>
+  <div id="topbar-mount"></div>
+
+  <main class="container">
+    <div class="page-header" id="page-header"></div>
+    <div id="events-grid" class="grid-2"></div>
+  </main>
+
+  <script src="app.js"></script>
+  <script>
+    function render() {
+      DemoApp.renderTopbar('index', render);
+      const state = DemoApp.loadState();
+      const adminMode = DemoApp.isAdmin(state);
+      const header = document.getElementById('page-header');
+      const grid = document.getElementById('events-grid');
+
+      if (adminMode) {
+        header.innerHTML = `
+          <div>
+            <h1>活动大厅（管理员实时名额看板）</h1>
+            <div class="muted">管理员视角：可查看各活动总名额、已确认数、待确认锁单数、剩余可用名额与候补队列人数。</div>
+          </div>
+          <div class="actions-row" style="margin-top:0;">
+            <a class="btn" href="stress-test.html">20人并发压测 →</a>
+            <a class="btn primary" href="admin.html">+ 新建活动</a>
+          </div>
+        `;
+      } else {
+        header.innerHTML = `
+          <div>
+            <h1>近期开放活动</h1>
+            <div class="muted">选择您感兴趣的线下活动进行预约；若当前名额已满，可加入候补排队。</div>
+          </div>
+          <div class="actions-row" style="margin-top:0;">
+            <a class="btn" href="my-reservations.html">查看我的预约 →</a>
+          </div>
+        `;
+      }
+
+      if (state.events.length === 0) {
+        grid.innerHTML = adminMode
+          ? '<div class="box">暂无活动，请前往 <a href="admin.html">运营管理台</a> 创建活动。</div>'
+          : '<div class="box">当前暂无开放预约的活动，请稍后再来。</div>';
+        return;
+      }
+
+      if (adminMode) {
+        // 管理员视图：完整展示库存、已确认、锁单、剩余、候补、超时规则
+        grid.innerHTML = state.events
+          .map((ev) => {
+            const stats = DemoApp.getEventStats(state, ev.id);
+            const confirmedPct = stats.capacity > 0 ? Math.min(100, (stats.confirmed / stats.capacity) * 100) : 0;
+            const pendingPct = stats.capacity > 0 ? Math.min(100 - confirmedPct, (stats.pending / stats.capacity) * 100) : 0;
+
+            return `
+              <section class="box">
+                <div class="box-title">
+                  <span>${ev.name}</span>
+                  <span class="mono muted">${ev.id}</span>
+                </div>
+                <div class="muted" style="margin-bottom:8px;">${ev.description}</div>
+                <div class="muted" style="margin-bottom:10px;">
+                  活动时间：${ev.startTime} ~ ${ev.endTime} ｜ 每人限购：${ev.maxPerUser} 份 ｜ 锁单超时：${ev.confirmTimeoutSec} 秒
+                </div>
+
+                <div class="grid-4">
+                  <div class="kpi">
+                    <div class="kpi-label">已确认 (Confirmed)</div>
+                    <div class="kpi-value">${stats.confirmed}</div>
+                  </div>
+                  <div class="kpi">
+                    <div class="kpi-label">待确认锁单 (Pending)</div>
+                    <div class="kpi-value">${stats.pending}</div>
+                  </div>
+                  <div class="kpi">
+                    <div class="kpi-label">剩余可用 (Available)</div>
+                    <div class="kpi-value">${stats.available} / ${stats.capacity}</div>
+                  </div>
+                  <div class="kpi">
+                    <div class="kpi-label">候补排队 (Waitlist)</div>
+                    <div class="kpi-value">${stats.waitlisted}</div>
+                  </div>
+                </div>
+
+                <div class="progress-bar" title="深色=已确认，灰色=待确认锁单，白色=剩余名额">
+                  <div class="progress-confirmed" style="width:${confirmedPct}%"></div>
+                  <div class="progress-pending" style="width:${pendingPct}%"></div>
+                </div>
+
+                <div class="actions-row">
+                  <a class="btn primary" href="event-detail.html?id=${encodeURIComponent(ev.id)}">
+                    查看实时队列与明细 →
+                  </a>
+                  <a class="btn" href="stress-test.html?eventId=${encodeURIComponent(ev.id)}">
+                    并发压测此活动 →
+                  </a>
+                </div>
+              </section>
+            `;
+          })
+          .join('');
+      } else {
+        // 普通用户视图：隐藏总库存、已确认数、锁单数、候补总人数与超时配置
+        grid.innerHTML = state.events
+          .map((ev) => {
+            const stats = DemoApp.getEventStats(state, ev.id);
+            const myRes = state.reservations.find(
+              (r) =>
+                r.eventId === ev.id &&
+                r.userId === state.currentUserId &&
+                ['CONFIRMED', 'PENDING_CONFIRM', 'WAITLISTED'].includes(r.status)
+            );
+
+            const availabilityTag =
+              stats.available > 0
+                ? '<span class="tag tag-CONFIRMED">可预约</span>'
+                : '<span class="tag tag-WAITLISTED">名额已满 · 可候补</span>';
+
+            let myStatusHtml = '';
+            if (myRes) {
+              const extra =
+                myRes.status === 'PENDING_CONFIRM'
+                  ? `（请在 ${DemoApp.formatCountdown(myRes.expiresAt, false)} 内确认）`
+                  : myRes.status === 'WAITLISTED'
+                  ? `（当前候补第 #${DemoApp.getWaitlistRank(state, myRes)} 位）`
+                  : '';
+              myStatusHtml = `
+                <div style="margin:10px 0; padding:8px 10px; background:#fafafa; border:1px solid #ddd; font-size:13px;">
+                  我的状态：<span class="tag tag-${myRes.status}">${DemoApp.formatStatus(myRes.status, false)}</span> ${extra}
+                </div>
+              `;
+            }
+
+            const btnText = myRes
+              ? '查看我的预约详情 →'
+              : stats.available > 0
+              ? '查看详情并预约 →'
+              : '查看详情 / 加入候补 →';
+
+            return `
+              <section class="box">
+                <div class="box-title">
+                  <span>${ev.name}</span>
+                  ${availabilityTag}
+                </div>
+                <div class="muted" style="margin-bottom:10px;">${ev.description}</div>
+                <div style="font-size:13px; margin-bottom:6px;">
+                  <div><strong>活动时间：</strong>${ev.startTime} ~ ${ev.endTime}</div>
+                  <div><strong>限购规则：</strong>每人限预约 ${ev.maxPerUser} 份</div>
+                </div>
+                ${myStatusHtml}
+                <div class="actions-row">
+                  <a class="btn primary" href="event-detail.html?id=${encodeURIComponent(ev.id)}">${btnText}</a>
+                </div>
+              </section>
+            `;
+          })
+          .join('');
+      }
+    }
+
+    render();
+    DemoApp.startAutoWorker(render);
+  </script>
+</body>
+</html>

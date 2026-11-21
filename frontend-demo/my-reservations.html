@@ -1,0 +1,157 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>我的预约 - 活动预约平台</title>
+  <link rel="stylesheet" href="wireframe.css" />
+</head>
+<body>
+  <div id="topbar-mount"></div>
+
+  <main class="container" id="main-container">
+    <div class="page-header">
+      <div>
+        <h1>我的预约</h1>
+        <div class="muted">当前账号：<strong id="user-name"></strong>，仅展示您的个人活动预约与候补进度。</div>
+      </div>
+      <a class="btn" href="index.html">← 去活动大厅看看</a>
+    </div>
+
+    <div id="content-area"></div>
+  </main>
+
+  <script src="app.js"></script>
+  <script>
+    let currentFilter = 'ALL';
+
+    function render() {
+      DemoApp.renderTopbar('my', render);
+      const state = DemoApp.loadState();
+      const user = DemoApp.getCurrentUser(state);
+      const adminMode = DemoApp.isAdmin(state);
+      document.getElementById('user-name').textContent = user.name;
+
+      const content = document.getElementById('content-area');
+
+      if (adminMode) {
+        content.innerHTML = `
+          <section class="box">
+            <div class="box-title">当前为管理员账号</div>
+            <p class="muted">管理员账号不作为普通 C 端用户下单。如需管理全部活动的预约名册，请前往运营管理台；如需体验普通用户个人预约页，请在右上角切换到任意普通用户。</p>
+            <div class="actions-row">
+              <a class="btn primary" href="admin.html">前往运营管理台</a>
+              <button id="switch-to-alice">切换到 Alice 查看用户视角</button>
+            </div>
+          </section>
+        `;
+        document.getElementById('switch-to-alice').addEventListener('click', () => {
+          DemoApp.setCurrentUser('u1');
+          render();
+        });
+        return;
+      }
+
+      let list = state.reservations
+        .filter((r) => r.userId === user.id)
+        .sort((a, b) => new Date(b.updatedAt) - new Date(a.updatedAt));
+
+      if (currentFilter === 'ENDED') {
+        list = list.filter((r) => ['CANCELLED', 'EXPIRED'].includes(r.status));
+      } else if (currentFilter !== 'ALL') {
+        list = list.filter((r) => r.status === currentFilter);
+      }
+
+      content.innerHTML = `
+        <section class="box">
+          <div class="tabs" id="my-tabs">
+            <button class="tab-btn ${currentFilter === 'ALL' ? 'active' : ''}" data-filter="ALL">全部</button>
+            <button class="tab-btn ${currentFilter === 'PENDING_CONFIRM' ? 'active' : ''}" data-filter="PENDING_CONFIRM">待确认</button>
+            <button class="tab-btn ${currentFilter === 'CONFIRMED' ? 'active' : ''}" data-filter="CONFIRMED">预约成功</button>
+            <button class="tab-btn ${currentFilter === 'WAITLISTED' ? 'active' : ''}" data-filter="WAITLISTED">候补中</button>
+            <button class="tab-btn ${currentFilter === 'ENDED' ? 'active' : ''}" data-filter="ENDED">已取消 / 已过期</button>
+          </div>
+
+          <table>
+            <thead>
+              <tr>
+                <th>预约单号</th>
+                <th>活动信息</th>
+                <th>当前状态</th>
+                <th>提示 / 进度</th>
+                <th>操作</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${
+                list.length === 0
+                  ? '<tr><td colspan="5" class="muted">暂无预约记录，去 <a href="index.html">活动大厅</a> 逛逛吧。</td></tr>'
+                  : list
+                      .map((r) => {
+                        const ev = state.events.find((e) => e.id === r.eventId);
+                        let detail = '-';
+                        if (r.status === 'PENDING_CONFIRM') detail = `请在 ${DemoApp.formatCountdown(r.expiresAt, false)} 内确认`;
+                        if (r.status === 'WAITLISTED') detail = `候补队列第 #${DemoApp.getWaitlistRank(state, r)} 位`;
+                        if (r.status === 'CONFIRMED') detail = '预约已生效，可凭单号入场';
+                        if (r.status === 'EXPIRED') detail = '超过确认时限，已自动失效';
+                        if (r.status === 'CANCELLED') detail = '您已主动取消';
+
+                        const canCancel = ['CONFIRMED', 'PENDING_CONFIRM', 'WAITLISTED'].includes(r.status);
+
+                        return `
+                          <tr>
+                            <td class="mono">${r.id}</td>
+                            <td>
+                              <a href="event-detail.html?id=${encodeURIComponent(r.eventId)}"><strong>${ev ? ev.name : r.eventId}</strong></a>
+                              ${ev ? `<div class="muted">${ev.startTime} ~ ${ev.endTime}</div>` : ''}
+                            </td>
+                            <td><span class="tag tag-${r.status}">${DemoApp.formatStatus(r.status, false)}</span></td>
+                            <td>${detail}</td>
+                            <td>
+                              ${r.status === 'PENDING_CONFIRM' ? `<button class="primary" data-confirm="${r.id}">确认预约</button>` : ''}
+                              ${canCancel ? `<button class="danger" data-cancel="${r.id}">${r.status === 'WAITLISTED' ? '取消候补' : '取消预约'}</button>` : ''}
+                              <button data-audit="${r.id}">状态记录</button>
+                            </td>
+                          </tr>
+                        `;
+                      })
+                      .join('')
+              }
+            </tbody>
+          </table>
+        </section>
+      `;
+
+      content.querySelectorAll('#my-tabs .tab-btn').forEach((btn) => {
+        btn.addEventListener('click', () => {
+          currentFilter = btn.dataset.filter;
+          render();
+        });
+      });
+
+      content.querySelectorAll('[data-confirm]').forEach((btn) => {
+        btn.addEventListener('click', () => {
+          const res = DemoApp.confirmReservation(btn.dataset.confirm);
+          DemoApp.showToast(res.ok ? '预约已确认成功！' : res.error);
+          render();
+        });
+      });
+
+      content.querySelectorAll('[data-cancel]').forEach((btn) => {
+        btn.addEventListener('click', () => {
+          const res = DemoApp.cancelReservation(btn.dataset.cancel);
+          DemoApp.showToast(res.ok ? '已取消该预约' : res.error);
+          render();
+        });
+      });
+
+      content.querySelectorAll('[data-audit]').forEach((btn) => {
+        btn.addEventListener('click', () => DemoApp.openAuditDrawer(btn.dataset.audit));
+      });
+    }
+
+    render();
+    DemoApp.startAutoWorker(render);
+  </script>
+</body>
+</html>

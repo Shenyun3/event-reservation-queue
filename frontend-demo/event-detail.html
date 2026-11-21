@@ -1,0 +1,364 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>活动详情 - 活动预约平台</title>
+  <link rel="stylesheet" href="wireframe.css" />
+</head>
+<body>
+  <div id="topbar-mount"></div>
+
+  <main class="container">
+    <div style="margin-bottom: 10px; font-size: 13px;">
+      <a href="index.html">← 返回活动大厅</a> / <span id="breadcrumb-name">活动详情</span>
+    </div>
+
+    <div class="page-header">
+      <div>
+        <h1 id="event-title">加载中...</h1>
+        <div class="muted" id="event-meta"></div>
+      </div>
+      <div class="actions-row" id="header-actions" style="margin-top:0;"></div>
+    </div>
+
+    <div id="page-body"></div>
+  </main>
+
+  <script src="app.js"></script>
+  <script>
+    const params = new URLSearchParams(window.location.search);
+    let currentTab = 'OCCUPIED';
+
+    function getTargetEventId(state) {
+      const fromUrl = params.get('id');
+      if (fromUrl && state.events.some((e) => e.id === fromUrl)) return fromUrl;
+      return state.events[0] ? state.events[0].id : null;
+    }
+
+    function render() {
+      DemoApp.renderTopbar('index', render);
+      const state = DemoApp.loadState();
+      const adminMode = DemoApp.isAdmin(state);
+      const currentUser = DemoApp.getCurrentUser(state);
+      const eventId = getTargetEventId(state);
+      const ev = state.events.find((e) => e.id === eventId);
+
+      if (!ev) {
+        document.getElementById('event-title').textContent = '未找到该活动';
+        document.getElementById('page-body').innerHTML = '<div class="box">活动不存在或已下线。</div>';
+        return;
+      }
+
+      const stats = DemoApp.getEventStats(state, ev.id);
+      document.getElementById('breadcrumb-name').textContent = ev.name;
+      document.getElementById('event-title').textContent = ev.name;
+
+      if (adminMode) {
+        document.getElementById('event-meta').textContent =
+          `活动ID: ${ev.id} ｜ 时间: ${ev.startTime} ~ ${ev.endTime} ｜ 总名额: ${ev.capacity} ｜ 单人限购: ${ev.maxPerUser} ｜ 确认超时: ${ev.confirmTimeoutSec} 秒`;
+        document.getElementById('header-actions').innerHTML = `
+          <a class="btn" href="stress-test.html?eventId=${encodeURIComponent(ev.id)}">用此活动做 20 人并发压测 →</a>
+        `;
+        renderAdminBody(state, ev, stats);
+      } else {
+        document.getElementById('event-meta').textContent =
+          `活动时间：${ev.startTime} ~ ${ev.endTime} ｜ 每人限预约 ${ev.maxPerUser} 份`;
+        document.getElementById('header-actions').innerHTML = `
+          <a class="btn" href="my-reservations.html">查看我的全部预约 →</a>
+        `;
+        renderUserBody(state, ev, stats, currentUser);
+      }
+    }
+
+    function renderUserBody(state, ev, stats, currentUser) {
+      const body = document.getElementById('page-body');
+
+      const myActive = state.reservations.find(
+        (r) =>
+          r.eventId === ev.id &&
+          r.userId === currentUser.id &&
+          ['CONFIRMED', 'PENDING_CONFIRM', 'WAITLISTED'].includes(r.status)
+      );
+
+      const myHistory = state.reservations
+        .filter((r) => r.eventId === ev.id && r.userId === currentUser.id)
+        .sort((a, b) => new Date(b.updatedAt) - new Date(a.updatedAt));
+
+      const statusBanner =
+        stats.available > 0
+          ? '<span class="tag tag-CONFIRMED">当前开放预约</span>'
+          : '<span class="tag tag-WAITLISTED">当前名额已满 · 支持登记候补</span>';
+
+      let actionCardHtml = '';
+      if (!myActive) {
+        const btnLabel = stats.available > 0 ? '立即预约' : '加入候补排队';
+        const tip =
+          stats.available > 0
+            ? '点击预约后将为您暂留名额，请尽快完成确认。'
+            : '当前名额已满，加入候补后若有名额释放，系统将按排队顺序自动为您转正。';
+        actionCardHtml = `
+          <div style="margin-bottom:8px;">${tip}</div>
+          <div class="actions-row">
+            <button id="user-reserve-btn" class="primary">${btnLabel}</button>
+          </div>
+        `;
+      } else {
+        const rank = DemoApp.getWaitlistRank(state, myActive);
+        let desc = '';
+        if (myActive.status === 'PENDING_CONFIRM') {
+          desc = `您的名额已暂留，请在 <strong>${DemoApp.formatCountdown(myActive.expiresAt, false)}</strong> 内点击确认预约，超时将自动释放。`;
+        } else if (myActive.status === 'WAITLISTED') {
+          desc = `您当前排在候补队列 <strong>第 #${rank} 位</strong>，有名额释放时将自动为您转正。`;
+        } else if (myActive.status === 'CONFIRMED') {
+          desc = '您已成功预约本场活动，届时请凭预约单号入场。';
+        }
+
+        actionCardHtml = `
+          <div style="margin-bottom:8px;">
+            预约单号：<strong class="mono">${myActive.id}</strong> ｜
+            当前状态：<span class="tag tag-${myActive.status}">${DemoApp.formatStatus(myActive.status, false)}</span>
+          </div>
+          <div style="margin-bottom:10px;">${desc}</div>
+          <div class="actions-row">
+            ${myActive.status === 'PENDING_CONFIRM' ? '<button id="user-confirm-btn" class="primary">确认预约</button>' : ''}
+            <button id="user-cancel-btn" class="danger">${myActive.status === 'WAITLISTED' ? '取消候补' : '取消预约'}</button>
+            <button id="user-audit-btn">查看状态进度记录</button>
+          </div>
+        `;
+      }
+
+      body.innerHTML = `
+        <section class="box">
+          <div class="box-title">
+            <span>活动介绍</span>
+            ${statusBanner}
+          </div>
+          <div>${ev.description}</div>
+          <div class="muted" style="margin-top:8px;">
+            活动时间：${ev.startTime} ~ ${ev.endTime} ｜ 限购规则：每人限预约 ${ev.maxPerUser} 份
+          </div>
+        </section>
+
+        <section class="box">
+          <div class="box-title">
+            <span>我的预约操作（${currentUser.name}）</span>
+          </div>
+          ${actionCardHtml}
+        </section>
+
+        ${
+          myHistory.length > 0
+            ? `
+          <section class="box">
+            <div class="box-title">我在本活动的预约记录</div>
+            <table>
+              <thead>
+                <tr>
+                  <th>预约单号</th>
+                  <th>状态</th>
+                  <th>说明</th>
+                  <th>更新时间</th>
+                  <th>操作</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${myHistory
+                  .map((r) => {
+                    let info = '-';
+                    if (r.status === 'PENDING_CONFIRM') info = `剩余确认时间 ${DemoApp.formatCountdown(r.expiresAt, false)}`;
+                    if (r.status === 'WAITLISTED') info = `当前排第 #${DemoApp.getWaitlistRank(state, r)} 位`;
+                    if (r.status === 'CONFIRMED') info = '已生效';
+                    return `
+                      <tr>
+                        <td class="mono">${r.id}</td>
+                        <td><span class="tag tag-${r.status}">${DemoApp.formatStatus(r.status, false)}</span></td>
+                        <td>${info}</td>
+                        <td class="mono muted">${DemoApp.formatTime(r.updatedAt)}</td>
+                        <td><button data-audit="${r.id}">查看状态记录</button></td>
+                      </tr>
+                    `;
+                  })
+                  .join('')}
+              </tbody>
+            </table>
+          </section>
+        `
+            : ''
+        }
+      `;
+
+      const reserveBtn = document.getElementById('user-reserve-btn');
+      if (reserveBtn) {
+        reserveBtn.addEventListener('click', () => {
+          const idemKey = `user-${currentUser.id}-${ev.id}-${Date.now()}`;
+          const res = DemoApp.createReservation({
+            eventId: ev.id,
+            userId: currentUser.id,
+            userName: currentUser.name,
+            idempotencyKey: idemKey
+          });
+          if (!res.ok) {
+            DemoApp.showToast(res.error);
+          } else if (res.reservation.status === 'WAITLISTED') {
+            DemoApp.showToast(`已加入候补队列，您当前排在第 #${res.rank} 位`);
+          } else {
+            DemoApp.showToast('名额已为您暂留，请尽快点击“确认预约”');
+          }
+          render();
+        });
+      }
+
+      const confirmBtn = document.getElementById('user-confirm-btn');
+      if (confirmBtn && myActive) {
+        confirmBtn.addEventListener('click', () => {
+          const res = DemoApp.confirmReservation(myActive.id);
+          DemoApp.showToast(res.ok ? '预约已确认成功！' : res.error);
+          render();
+        });
+      }
+
+      const cancelBtn = document.getElementById('user-cancel-btn');
+      if (cancelBtn && myActive) {
+        cancelBtn.addEventListener('click', () => {
+          const res = DemoApp.cancelReservation(myActive.id);
+          DemoApp.showToast(res.ok ? '已取消该预约' : res.error);
+          render();
+        });
+      }
+
+      const auditBtn = document.getElementById('user-audit-btn');
+      if (auditBtn && myActive) {
+        auditBtn.addEventListener('click', () => DemoApp.openAuditDrawer(myActive.id));
+      }
+
+      body.querySelectorAll('[data-audit]').forEach((btn) => {
+        btn.addEventListener('click', () => DemoApp.openAuditDrawer(btn.dataset.audit));
+      });
+    }
+
+    function renderAdminBody(state, ev, stats) {
+      const body = document.getElementById('page-body');
+
+      let list = state.reservations.filter((r) => r.eventId === ev.id);
+      if (currentTab === 'OCCUPIED') {
+        list = list.filter((r) => ['CONFIRMED', 'PENDING_CONFIRM'].includes(r.status));
+      } else if (currentTab === 'WAITLISTED') {
+        list = list
+          .filter((r) => r.status === 'WAITLISTED')
+          .sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt));
+      } else if (currentTab === 'ENDED') {
+        list = list.filter((r) => ['CANCELLED', 'EXPIRED'].includes(r.status));
+      }
+
+      const oversellBadge = stats.oversold
+        ? `<span class="tag tag-EXPIRED">异常超卖 ${stats.occupied}/${stats.capacity}</span>`
+        : `<span class="tag tag-CONFIRMED">无超卖 ${stats.occupied}/${stats.capacity} OK</span>`;
+
+      body.innerHTML = `
+        <section class="box">
+          <div class="box-title">
+            <span>管理员实时名额监控（防超卖校验：${oversellBadge}）</span>
+            <span class="muted">每 10 秒后台自动巡检过期锁单</span>
+          </div>
+          <div class="grid-4">
+            <div class="kpi"><div class="kpi-label">已确认 (CONFIRMED)</div><div class="kpi-value">${stats.confirmed}</div></div>
+            <div class="kpi"><div class="kpi-label">待确认锁单 (PENDING)</div><div class="kpi-value">${stats.pending}</div></div>
+            <div class="kpi"><div class="kpi-label">剩余可用 (AVAILABLE)</div><div class="kpi-value">${stats.available} / ${stats.capacity}</div></div>
+            <div class="kpi"><div class="kpi-label">候补排队 (WAITLISTED)</div><div class="kpi-value">${stats.waitlisted}</div></div>
+          </div>
+        </section>
+
+        <section class="box">
+          <div class="box-title">
+            <span>全量预约名册与候补队列（FIFO）</span>
+            <span class="muted">点击任意行的「审计日志」打开右侧完整状态时间线抽屉</span>
+          </div>
+
+          <div class="tabs" id="queue-tabs">
+            <button class="tab-btn ${currentTab === 'OCCUPIED' ? 'active' : ''}" data-tab="OCCUPIED">占座中（已确认 + 待确认）</button>
+            <button class="tab-btn ${currentTab === 'WAITLISTED' ? 'active' : ''}" data-tab="WAITLISTED">候补队列（FIFO 顺位）</button>
+            <button class="tab-btn ${currentTab === 'ENDED' ? 'active' : ''}" data-tab="ENDED">已结束（已取消 + 已超时）</button>
+            <button class="tab-btn ${currentTab === 'ALL' ? 'active' : ''}" data-tab="ALL">全部记录</button>
+          </div>
+
+          <table>
+            <thead>
+              <tr>
+                <th>单号</th>
+                <th>用户</th>
+                <th>状态</th>
+                <th>顺位 / 锁单倒计时</th>
+                <th>最近更新</th>
+                <th>运维操作</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${
+                list.length === 0
+                  ? '<tr><td colspan="6" class="muted">当前分类下暂无记录</td></tr>'
+                  : list
+                      .map((r) => {
+                        let info = '-';
+                        if (r.status === 'PENDING_CONFIRM') info = `剩余 ${DemoApp.formatCountdown(r.expiresAt, true)}`;
+                        if (r.status === 'WAITLISTED') info = `候补顺位 #${DemoApp.getWaitlistRank(state, r)}`;
+                        const canAct = ['CONFIRMED', 'PENDING_CONFIRM', 'WAITLISTED'].includes(r.status);
+                        return `
+                          <tr>
+                            <td class="mono">${r.id}</td>
+                            <td>${r.userName} <span class="muted mono">(${r.userId})</span></td>
+                            <td><span class="tag tag-${r.status}">${r.status}</span></td>
+                            <td>${info}</td>
+                            <td class="mono muted">${DemoApp.formatTime(r.updatedAt)}</td>
+                            <td>
+                              <button data-audit="${r.id}">审计日志</button>
+                              ${r.status === 'PENDING_CONFIRM' ? `<button data-confirm="${r.id}">代确认</button>` : ''}
+                              ${canAct ? `<button class="danger" data-cancel="${r.id}">强制取消</button>` : ''}
+                            </td>
+                          </tr>
+                        `;
+                      })
+                      .join('')
+              }
+            </tbody>
+          </table>
+        </section>
+      `;
+
+      body.querySelectorAll('#queue-tabs .tab-btn').forEach((btn) => {
+        btn.addEventListener('click', () => {
+          currentTab = btn.dataset.tab;
+          render();
+        });
+      });
+
+      body.querySelectorAll('[data-audit]').forEach((btn) => {
+        btn.addEventListener('click', () => DemoApp.openAuditDrawer(btn.dataset.audit));
+      });
+      body.querySelectorAll('[data-confirm]').forEach((btn) => {
+        btn.addEventListener('click', () => {
+          const res = DemoApp.confirmReservation(btn.dataset.confirm);
+          DemoApp.showToast(res.ok ? `已代确认 ${btn.dataset.confirm}` : res.error);
+          render();
+        });
+      });
+      body.querySelectorAll('[data-cancel]').forEach((btn) => {
+        btn.addEventListener('click', () => {
+          const res = DemoApp.cancelReservation(btn.dataset.cancel);
+          if (!res.ok) {
+            DemoApp.showToast(res.error);
+          } else if (res.promoted) {
+            DemoApp.showToast(`已取消 ${btn.dataset.cancel}；候补队首 ${res.promoted.userName}(${res.promoted.id}) 已自动转正！`);
+          } else {
+            DemoApp.showToast(`已取消 ${btn.dataset.cancel}`);
+          }
+          render();
+        });
+      });
+    }
+
+    render();
+    DemoApp.startAutoWorker(render);
+  </script>
+</body>
+</html>
