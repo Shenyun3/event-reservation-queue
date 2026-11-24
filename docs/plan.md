@@ -184,25 +184,25 @@
 
 ### Phase 4：Docker Compose 一键部署、README 交付文档与终检（串行）
 
-- [ ] **4.1 后端容器镜像（`backend/Dockerfile`）**
+- [x] **4.1 后端容器镜像（`backend/Dockerfile`）**
   - 基于已验证镜像 `node:26.13.1-slim` + `corepack enable`（锁定 `pnpm@12.21.0`）。
   - 拷贝根 `package.json`、`pnpm-workspace.yaml`、`pnpm-lock.yaml`、`packages/shared`、`backend`。
   - 构建期执行 `pnpm install --frozen-lockfile` 与 `pnpm --filter @queue-reservation/backend prisma generate`。
   - 运行镜像保留 `prisma` CLI 与 `tsx`，启动命令自动执行 `prisma migrate deploy && prisma db seed && pnpm --filter @queue-reservation/backend start`（默认 `DB_POOL_MAX=30`、`ENABLE_EXPIRATION_WORKER=true`）。
-- [ ] **4.2 前端容器镜像与反向代理（`frontend/Dockerfile`、`frontend/nginx.conf`）**
+- [x] **4.2 前端容器镜像与反向代理（`frontend/Dockerfile`、`frontend/nginx.conf`）**
   - 多阶段构建：Node `26.13.1-slim` 构建 Vite 静态产物 → `nginx:1.27-alpine` 托管 SPA（`try_files $uri $uri/ /index.html;`）并将 `/api/*` 反向代理至 `http://backend:3000`。
-- [ ] **4.3 一键编排（`compose.yaml`）**
+- [x] **4.3 一键编排（`compose.yaml`）**
   - 编排 `postgres`（`postgres:17-alpine` + `pg_isready` healthcheck + 数据卷）、`backend`（`depends_on: postgres (service_healthy)`，映射 `3000:3000`）、`frontend`（`depends_on: backend`，映射 `5173:80`）。
-- [ ] **4.4 交付文档（`README.md`）**
+- [x] **4.4 交付文档（`README.md`）**
   - 一键启动命令（`docker compose up --build`）与访问地址（前端 `http://localhost:5173`、后端 `http://localhost:3000/api/health`）。
   - 本地开发与集成测试运行指南（含 `DATABASE_URL_TEST` 与 8 组测试说明）。
   - 演示脚本与已知原型边界声明：`X-User-Id` 非安全边界、`expiresAt` 钳制至 `startTime` 的窗口缩短说明、首屏倒计时过期后点击「重置演示数据」重放说明、Admin 新建 `maxPerUser=2` 活动演示多单交互说明。
 
 **Phase 4 最终交付门禁**：
-- [ ] `docker compose up --build -d` 成功拉起全部 3 个服务且无重启崩溃循环。
-- [ ] 容器实测冒烟：`GET /api/health` 返回 `200`（`db: 'up'`）、`GET /api/events`（`X-User-Id: u1` 裁剪敏感字段，`X-User-Id: admin` 返回完整看板）、前端 `http://localhost:5173` 可正常访问且 `/api/*` 代理畅通。
-- [ ] `pnpm typecheck && pnpm build && pnpm --filter @queue-reservation/backend test` 退出码 `0`。
-- [ ] 通过最终只读 `phase-review` 双轮盲审（Pass 1 & Pass 2 零 P0/P1）。
+- [x] `docker compose up --build -d` 成功拉起全部 3 个服务且无重启崩溃循环。
+- [x] 容器实测冒烟：`GET /api/health` 返回 `200`（`db: 'up'`）、`GET /api/events`（`X-User-Id: u1` 裁剪敏感字段，`X-User-Id: admin` 返回完整看板）、前端 `http://localhost:5173` 可正常访问且 `/api/*` 代理畅通。
+- [x] `pnpm typecheck && pnpm build && pnpm --filter @queue-reservation/backend test` 退出码 `0`。
+- [x] 通过最终只读 `phase-review` 双轮盲审（Pass 1 & Pass 2 零 P0/P1）。
 
 ---
 
