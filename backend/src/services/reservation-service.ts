@@ -642,6 +642,7 @@ export class ReservationService {
 
     let expiredCount = 0;
     let promotedCount = 0;
+    const failedEventIds: string[] = [];
 
     for (const eventId of eventIds) {
       try {
@@ -658,7 +659,12 @@ export class ReservationService {
           this.logger.warn('expiration_worker_skip_missing_event', { eventId });
           continue;
         }
-        throw err;
+        // 单活动锁争用或异常仅记录并跳过，避免中断本轮其余活动巡检及停滞 lastWorkerRunAt
+        failedEventIds.push(eventId);
+        this.logger.error('expiration_worker_event_failed', {
+          eventId,
+          error: err instanceof Error ? err.message : String(err),
+        });
       }
     }
 
@@ -668,6 +674,8 @@ export class ReservationService {
       scannedEvents: eventIds.length,
       expiredCount,
       promotedCount,
+      failedEventCount: failedEventIds.length,
+      ...(failedEventIds.length > 0 ? { failedEventIds } : {}),
       lastWorkerRunAt: runAt.toISOString(),
     });
 

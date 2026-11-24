@@ -324,20 +324,17 @@ export function MyReservationsPage() {
                             <Button
                               size="sm"
                               variant="destructive"
-                              disabled={isMutatingThis || isWaitlistMissed}
-                              title={
-                                isWaitlistMissed
-                                  ? '活动已开始，候补已无法转正'
-                                  : undefined
-                              }
+                              disabled={isMutatingThis}
                               onClick={() => cancelMutation.mutate(item.id)}
                             >
                               <XCircle className="h-3.5 w-3.5" />
                               {isCancellingThis
                                 ? '取消中...'
-                                : item.status === 'WAITLISTED'
-                                  ? '取消候补'
-                                  : '取消预约'}
+                                : isWaitlistMissed
+                                  ? '退出候补'
+                                  : item.status === 'WAITLISTED'
+                                    ? '取消候补'
+                                    : '取消预约'}
                             </Button>
                           ) : null}
 

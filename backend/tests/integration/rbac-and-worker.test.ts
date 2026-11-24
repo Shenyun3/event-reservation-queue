@@ -571,4 +571,48 @@ describe('P0 RBAC isolation, worker expiration sweep & reset-seed tests (#8)', (
     await assertEventInvariants(ctx.prisma, 'evt-1', ctx.clock.now());
     await assertEventInvariants(ctx.prisma, 'evt-2', ctx.clock.now());
   });
+
+  it('isolates single-event transaction failures during expireOverdueReservations so other events and lastWorkerRunAt still complete', async () => {
+    // 推进时钟使 evt-1 (res-103 剩 480s) 与 evt-2 (res-106 剩 110s) 均超时
+    ctx.clock.advanceSeconds(600);
+
+    let firstAttemptFailed = false;
+    let recordedRunAt: Date | null = null;
+    const flakyTxManager: TransactionManager = {
+      async run(work) {
+        if (!firstAttemptFailed) {
+          firstAttemptFailed = true;
+          throw Object.assign(new Error('Transaction timeout'), { code: 'P2028' });
+        }
+        return ctx.txManager.run(work);
+      },
+    };
+
+    const svc = new ReservationService({
+      repos: ctx.repos,
+      txManager: flakyTxManager,
+      clock: ctx.clock,
+      logger: createLogger('error'),
+      onWorkerRun: (runAt) => {
+        recordedRunAt = runAt;
+      },
+    });
+
+    const result = await svc.expireOverdueReservations();
+    expect(result.expiredCount).toBe(1);
+    expect(result.promotedCount).toBe(1);
+    expect(recordedRunAt).not.toBeNull();
+    expect(result.lastWorkerRunAt).toBe(ctx.clock.now().toISOString());
+
+    // evt-1 首次模拟 P2028 失败后保持原状，evt-2 仍被正常回收并触发 res-107 转正
+    const res103 = await ctx.prisma.reservation.findUnique({ where: { id: 'res-103' } });
+    const res106 = await ctx.prisma.reservation.findUnique({ where: { id: 'res-106' } });
+    const res107 = await ctx.prisma.reservation.findUnique({ where: { id: 'res-107' } });
+    expect(res103?.status).toBe('PENDING_CONFIRM');
+    expect(res106?.status).toBe('EXPIRED');
+    expect(res107?.status).toBe('PENDING_CONFIRM');
+
+    await assertEventInvariants(ctx.prisma, 'evt-1', ctx.clock.now());
+    await assertEventInvariants(ctx.prisma, 'evt-2', ctx.clock.now());
+  });
 });

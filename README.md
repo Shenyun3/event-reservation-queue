@@ -96,7 +96,7 @@ pnpm typecheck
 # 全仓构建
 pnpm build
 
-# 运行全部 5 个测试文件 / 19 条真实 PostgreSQL 集成测试（每条用例均断言 4 条数据库不变量）
+# 运行全部 5 个测试文件 / 20 条真实 PostgreSQL 集成测试（每条用例均断言 4 条数据库不变量）
 pnpm --filter @queue-reservation/backend test
 ```
 
@@ -126,12 +126,13 @@ pnpm --filter @queue-reservation/backend test
 
 ---
 
-## 5. 已知原型边界说明
+## 5. 已知原型边界与取舍说明
 
-- **模拟身份头（`X-User-Id`）非生产安全边界**：本项目通过请求头 `X-User-Id` 支持演示期在顶部一键切换 5 位普通用户与 1 位管理员，所有角色校验与字段裁剪均在后端 Service 层严格执行；但因未引入真实登录与签名令牌，任何客户端均可构造 `X-User-Id: admin`。生产部署时只需在 `backend/src/routes/context.ts` 将身份解析中间件替换为 JWT / OAuth2 验签即可（Service 层无感）。
+- **模拟身份头（`X-User-Id`）与 CORS 非生产安全边界**：本项目通过请求头 `X-User-Id` 支持演示期在顶部一键切换 5 位普通用户与 1 位管理员，所有角色校验与字段裁剪均在后端 Service 层严格执行；后端默认启用宽松 `cors()` 便于本地开发联调，因未引入真实登录与签名令牌，任何客户端均可构造 `X-User-Id: admin`。生产部署时只需在 `backend/src/routes/context.ts` 替换为 JWT / OAuth2 验签中间件，并在 Nginx 同源代理下收紧或移除 CORS 即可。
+- **「重置演示数据」权限有意收敛为 `ADMIN` 专属**：静态线框 `demo/` 中所有角色均可见重置按钮以便离线演示；正式实现中收敛为仅 `ADMIN` 可见且后端强校验 `403 FORBIDDEN`，符合最小权限原则。
 - **临近开场时 `expiresAt` 钳制行为**：确认截止时间统一计算为 `min(now + confirmTimeoutSec, event.startTime)`，保证不会出现活动开始后仍有效锁单的情况；因此在临近 `startTime` 时新下单或刚转正的确认窗口可能短于 `confirmTimeoutSec`。
-- **活动开始后的存量候补单**：当 `now >= event.startTime` 后，系统停止新预约与候补转正，不再新增状态边变更既有 `WAITLISTED` 记录；前端在「活动详情」与「我的预约」中会明确展示「活动已开始，候补未转正」并禁用无效操作。
-- **压测并发上限保护**：`POST /api/events/:eventId/simulate-burst` 受限于 `min(25, DB_POOL_MAX - 5)`（默认 `DB_POOL_MAX = 30`，单次上限 25 路并发），为常规读请求与后台 Worker 预留连接池余量，避免自发压测耗尽连接池。
+- **活动开始后的存量候补单**：当 `now >= event.startTime` 后，系统停止新预约与候补转正，不再新增状态边变更既有 `WAITLISTED` 记录；前端在「活动详情」与「我的预约」中会明确展示「活动已开始，候补未转正」，同时保留「退出候补」按钮允许用户主动清理（与后端 `WAITLISTED -> CANCELLED` 规则一致）。
+- **压测并发上限与容器运行形态取舍**：`POST /api/events/:eventId/simulate-burst` 对**单个请求**限流 `min(25, DB_POOL_MAX - 5)`（默认 `DB_POOL_MAX = 30`，单次上限 25 路并发）以预留连接池余量（若多标签页同时并发压测，依赖事务 `maxWait: 10s` 排队或返回 `503 SERVICE_BUSY`）；后端容器镜像面向原型快速启动采用 `tsx` 直接运行 TypeScript 并在启动期执行幂等迁移/Seed，生产化时可切换为独立编译产物、非 root 用户运行与独立迁移 Job。
 
 ---
 
