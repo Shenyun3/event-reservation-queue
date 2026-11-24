@@ -99,6 +99,9 @@ export function createTestContext(initialTime: Date = new Date('2026-11-24T12:00
     dbPoolMax: 30,
     workerEnabled: false,
     getLastWorkerRunAt: () => lastWorkerRunAt,
+    onWorkerRun: (runAt) => {
+      lastWorkerRunAt = runAt;
+    },
     checkDbHealth: async () => {
       await handle.prisma.user.count();
       return true;

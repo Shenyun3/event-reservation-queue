@@ -56,6 +56,9 @@ export function createApp(deps: AppDependencies): Hono<AppEnv> {
 
   let localLastWorkerRunAt: Date | null = null;
   const resolveLastWorkerRunAt = (): Date | null => {
+    if (deps.onWorkerRun) {
+      return deps.getLastWorkerRunAt();
+    }
     const external = deps.getLastWorkerRunAt();
     if (external && localLastWorkerRunAt) {
       return external.getTime() >= localLastWorkerRunAt.getTime()
@@ -65,8 +68,11 @@ export function createApp(deps: AppDependencies): Hono<AppEnv> {
     return external ?? localLastWorkerRunAt;
   };
   const recordWorkerRun = (runAt: Date): void => {
+    if (deps.onWorkerRun) {
+      deps.onWorkerRun(runAt);
+      return;
+    }
     localLastWorkerRunAt = runAt;
-    deps.onWorkerRun?.(runAt);
   };
 
   const userService = new UserService({ repos: deps.repos });

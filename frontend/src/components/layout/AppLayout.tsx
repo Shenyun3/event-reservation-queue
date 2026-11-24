@@ -12,7 +12,7 @@ import { Topbar } from './Topbar';
  * @returns 包含全局顶部导航与子路由出口的布局树
  */
 export function AppLayout() {
-  const { usersError, refetchUsers, isLoadingUsers } = useUser();
+  const { currentUser, usersError, refetchUsers, isLoadingUsers } = useUser();
 
   return (
     <div className="min-h-screen bg-background text-foreground">
@@ -30,7 +30,7 @@ export function AppLayout() {
             />
           </div>
         ) : null}
-        <Outlet />
+        {usersError && !currentUser ? null : <Outlet />}
       </main>
     </div>
   );

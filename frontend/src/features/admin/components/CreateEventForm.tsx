@@ -99,6 +99,9 @@ export function CreateEventForm({ userId }: CreateEventFormProps) {
 
   const handleSubmit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
+    if (createEventMutation.isPending) {
+      return;
+    }
 
     const parsed = CreateEventInputSchema.safeParse({
       name: form.name,

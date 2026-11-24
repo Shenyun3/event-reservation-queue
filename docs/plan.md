@@ -94,10 +94,10 @@
 
 #### Track 2A：后端 P0 业务、Worker、路由与强一致集成测试（`wt-backend-p0`）
 
-- [ ] **2A.1 核心领域原语（`backend/src/services/transition.ts`）**
+- [x] **2A.1 核心领域原语（`backend/src/services/transition.ts`）**
   - 实现 `applyTransition(fromStatus, toStatus)` 查表函数（与 `architecture.md` §5.1 状态表 1:1 对应；内部 `throw` 仅作为非法调用断言并加注释）。
   - 实现 `releaseExpiredInLock(repos, lockedEvent, now)`：扫描当前活动 `expiresAt <= now` 的 `PENDING_CONFIRM`，逐条置 `EXPIRED` + `applyTransition` 扣 `pendingCount` + 写 `SYSTEM_TIMEOUT` 审计（`createdAt: now`）；仅当 `now < event.startTime` 时调用 `promoteNextWaitlistedInLock` 转正 `waitlistSeq ASC` 队首并钳制 `expiresAt = min(now + confirmTimeoutSec, event.startTime)`。
-- [ ] **2A.2 Service 用例层（纯业务，零 HTTP / Prisma 耦合）**
+- [x] **2A.2 Service 用例层（纯业务，零 HTTP / Prisma 耦合）**
   - `user-service.ts`：`listUsers({ includeSimulated })`（默认过滤 `isSimulated = false`）。
   - `event-service.ts`：
     - `listEvents(actor)`：按 `createdAt DESC` 查活动 + 单次 `groupBy` 统计候补单数 + 校验 `now >= startTime -> CLOSED`；`USER` 裁剪敏感运营字段并返回 `myActiveReservations[]`；`ADMIN` 返回完整规则与 `stats`（`oversold` 按真实预约行数校验）。
@@ -110,14 +110,14 @@
     - `getAuditLogs(actor, reservationId)`：仅本人或 `ADMIN`，按 `(createdAt ASC, id ASC)` 返回完整时间线。
     - `expireOverdueReservations()`：无锁 `groupBy({ by: ['eventId'] })` 扫描 `expiresAt <= now` 活动，按 `eventId ASC` 逐个开锁事务调用 `releaseExpiredInLock`，更新 `lastWorkerRunAt`。
   - `admin-service.ts`：`resetSeed(actor)` 在单事务内按 `id ASC` 锁定全部现有 `Event` 行，再按 `reservation_audit_logs -> reservations -> events -> users(isSimulated=true)` 顺序清空并调用 `seedDatabase`。
-- [ ] **2A.3 后台 10 秒超时巡检 Worker（`backend/src/worker/expiration-worker.ts`）**
+- [x] **2A.3 后台 10 秒超时巡检 Worker（`backend/src/worker/expiration-worker.ts`）**
   - `setInterval` 10 秒周期、`isRunning` 防重入锁、内存记录 `lastWorkerRunAt`、`ENABLE_EXPIRATION_WORKER` 开关控制、`stop()` 优雅等待当前轮次结束。
-- [ ] **2A.4 路由层、全局错误处理与启动入口（`backend/src/routes/**`、`app.ts`、`server.ts`）**
+- [x] **2A.4 路由层、全局错误处理与启动入口（`backend/src/routes/**`、`app.ts`、`server.ts`）**
   - 实现全部 12 个 P0 路由（`GET /api/health`、`GET /api/users`、`GET /api/events`、`POST /api/events`、`GET /api/events/:eventId`、`POST /api/events/:eventId/reservations`、`GET /api/reservations/me`、`POST /api/reservations/:id/confirm`、`POST /api/reservations/:id/cancel`、`GET /api/reservations/:id/audit-logs`、`POST /api/admin/worker/expire`、`POST /api/admin/reset-seed`）。
   - 中间件：`requestId` 注入、结构化请求日志、`X-User-Id` 身份解析（区分 `401 UNAUTHORIZED` 与 `401 USER_NOT_FOUND`）、`Idempotency-Key` 必填校验（`400 VALIDATION_ERROR`）、响应信封包装（含 `requestId`、`serverTime`）。
   - 全局 `onError`：`AppError`、`ZodError -> 400 VALIDATION_ERROR`、`P2025 -> 404 EVENT_NOT_FOUND`、`P2028/P2034 -> 503 SERVICE_BUSY`、未知异常打堆栈日志并返回脱敏 `500 INTERNAL_ERROR`。
   - `server.ts`：启动 `@hono/node-server`，按配置挂载 Worker，监听 `SIGINT`/`SIGTERM` 优雅停机并释放 Prisma 连接池。
-- [ ] **2A.5 必过 Vitest 集成测试矩阵（`backend/tests/integration/**`，`fileParallelism: false`）**
+- [x] **2A.5 必过 Vitest 集成测试矩阵（`backend/tests/integration/**`，`fileParallelism: false`）**
   - 每条用例开始前调用 `resetTestDb()`，结束后强制调用 `assertEventInvariants(prisma, eventId, clock.now())`：
     - **测试 #1（20 抢 5 防超卖）**：动态创建 20 用户、`capacity=5, maxPerUser=1`，`Promise.all` 并发 `app.request('POST /api/events/:id/reservations')`，断言 5 `PENDING_CONFIRM`、15 `WAITLISTED`、零超卖、`waitlistSeq` 严格递增无重复。
     - **测试 #2（取消转正 + RBAC 防泄露）**：取消 `CONFIRMED` 与 `PENDING_CONFIRM` 均触发 FIFO 队首转正；验证 `USER` 取消返回 `promotedReservation: null`，`ADMIN` 取消返回完整转正 DTO。
@@ -132,30 +132,30 @@
 
 > 严格对齐 [demo/](file:///home/shenyun/dev/queue-reservation/demo) 的页面跳转、角色视野与交互闭环；全部基础组件复用 `src/components/ui/`；所有异步视图完整处理 `loading / empty / error / success` 四态。
 
-- [ ] **2B.1 全局 Topbar 与审计详情抽屉（`frontend/src/components/layout/`）**
+- [x] **2B.1 全局 Topbar 与审计详情抽屉（`frontend/src/components/layout/`）**
   - `Topbar.tsx`：角色导航（`USER` 见「活动大厅」「我的预约」；`ADMIN` 见「活动看板」「运营管理台」「20人并发压测」），模拟身份切换下拉（接入 `GET /api/users`），`ADMIN` 专属快捷操作「立即触发超时巡检」（`POST /api/admin/worker/expire`）与「重置演示数据」（`POST /api/admin/reset-seed`）及 `lastWorkerRunAt` 显示。
   - `AuditDrawer.tsx`：基于 `shadcn/ui` `Sheet`，接入 `GET /api/reservations/:id/audit-logs`，按时间线展示状态变化、触发源标签（`USER_ACTION` / `SYSTEM_TIMEOUT` / `WAITLIST_PROMOTED`）、操作人、备注与时间戳。
   - `CountdownBadge.tsx`：基于 `expiresAt` 与服务端 `meta.serverTime` 偏移量本地每秒递减倒计时，归零后触发一次 query 刷新。
-- [ ] **2B.2 活动大厅 / 实时看板页（`/`，对齐 `demo/index.html`）**
+- [x] **2B.2 活动大厅 / 实时看板页（`/`，对齐 `demo/index.html`）**
   - 接入 `GET /api/events`（TanStack Query `refetchInterval: 3000`）。
   - `USER` 视图：仅展示公开信息、`availabilityStatus` 标签（可预约 / 仅候补 / 已截止）与本人在该活动的活跃预约摘要；点击进入详情页。
   - `ADMIN` 视图：展示顶部全局 KPI + 每个活动的容量、已确认、待确认锁单、候补单数、剩余可用名额与防超卖一致性徽标，快捷跳转活动详情与压测页。
-- [ ] **2B.3 活动详情页（`/events/:eventId`，对齐 `demo/event-detail.html`）**
+- [x] **2B.3 活动详情页（`/events/:eventId`，对齐 `demo/event-detail.html`）**
   - 接入 `GET /api/events/:eventId`（`refetchInterval: 3000`）。
   - `USER` 视图：完整支持 **`maxPerUser > 1`** —— 渲染本人在该活动的**全部活跃预约列表**（每条独立展示倒计时/候补顺位/确认/取消/查看审计按钮），只要 `myActiveReservations.length < event.maxPerUser` 且活动未截止即展示「发起预约 / 登记候补」按钮（严格维护 `Idempotency-Key` 生命周期，防双击；对已开始活动的存量 `WAITLISTED` 展示「活动已开始，候补未转正」），下方展示本人历史记录。
   - `ADMIN` 视图：展示活动实时 KPI、`OCCUPIED / WAITLISTED / CLOSED / ALL` 名册 Tabs、每行操作（代确认、强制取消、查看审计抽屉）。
-- [ ] **2B.4 我的预约页（`/my-reservations`，对齐 `demo/my-reservations.html`）**
+- [x] **2B.4 我的预约页（`/my-reservations`，对齐 `demo/my-reservations.html`）**
   - `USER` 专属（`ADMIN` 访问展示明确身份提示与跳转链接）；接入 `GET /api/reservations/me?status=...`（`ALL | PENDING_CONFIRM | CONFIRMED | WAITLISTED | CLOSED`，`refetchInterval: 3000`）。
   - 支持行内确认、取消、倒计时、实时候补顺位展示与审计抽屉。
-- [ ] **2B.5 运营管理台（`/admin`，对齐 `demo/admin.html`）**
+- [x] **2B.5 运营管理台（`/admin`，对齐 `demo/admin.html`）**
   - `ADMIN` 专属守卫（非 `ADMIN` 展示权限拦截卡，与 `demo/admin.html` 一致）。
   - 左侧/上方「创建新活动」表单（Zod 校验名称、简介、开始/结束时间、容量、单人限购 `maxPerUser`、确认超时秒数 `>= 10`），提交 `POST /api/events` 后即时刷新看板；右侧展示活动汇总表与快捷入口（含可建 `maxPerUser = 2` 活动演示多单交互）。
 
 **Phase 2 验收门禁**：
-- [ ] 合并 `wt-backend-p0` 与 `wt-frontend-p0` 后，执行 `pnpm typecheck && pnpm build` 退出码 `0`。
-- [ ] 执行 `pnpm --filter @queue-reservation/backend test`（真实 PostgreSQL `DATABASE_URL_TEST`），8 组集成测试 + `assertEventInvariants` 全部通过（退出码 `0`）。
-- [ ] 启动本地后端与前端，核实 `.logs/backend.log` 与 `.logs/frontend.log` 无未捕获异常或 500 报错；验证 User 与 Admin 核心闭环真实联通。
-- [ ] 通过只读 `phase-review` 门禁检查（Pass 1 & Pass 2 无 P0/P1）。
+- [x] 合并 `wt-backend-p0` 与 `wt-frontend-p0` 后，执行 `pnpm typecheck && pnpm build` 退出码 `0`。
+- [x] 执行 `pnpm --filter @queue-reservation/backend test`（真实 PostgreSQL `DATABASE_URL_TEST`），8 组集成测试 + `assertEventInvariants` 全部通过（退出码 `0`）。
+- [x] 启动本地后端与前端，核实 `.logs/backend.log` 与 `.logs/frontend.log` 无未捕获异常或 500 报错；验证 User 与 Admin 核心闭环真实联通。
+- [x] 通过只读 `phase-review` 门禁检查（Pass 1 & Pass 2 无 P0/P1）。
 
 ---
 

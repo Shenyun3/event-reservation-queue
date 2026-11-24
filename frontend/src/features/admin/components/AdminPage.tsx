@@ -124,6 +124,10 @@ export function AdminPage() {
               <Skeleton className="h-20 w-full" />
               <Skeleton className="h-20 w-full" />
             </div>
+          ) : eventsQuery.isError ? (
+            <div className="rounded-md border border-destructive/30 bg-destructive/5 px-4 py-3 text-sm text-destructive">
+              总览统计加载失败，请在下方活动列表中点击重试。
+            </div>
           ) : (
             <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
               <div className="rounded-md border bg-muted/30 p-3">
