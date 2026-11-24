@@ -1,6 +1,6 @@
 /**
- * Hono 应用 DI 工厂（Phase 1 基座：支持注入 Clock、Repositories、TransactionManager 与 Worker 状态，
- * 供 server.ts 与 Vitest 集成测试进程内 `app.request()` 共享）。
+ * Hono 应用 DI 工厂：组装全局中间件、统一错误处理、服务用例与全部 P0 REST 路由。
+ * 供 `server.ts` 与 Vitest 集成测试进程内 `app.request()` 共享。
  */
 import { randomUUID } from 'node:crypto';
 import { ERROR_CODES } from '@queue-reservation/shared';
@@ -12,6 +12,22 @@ import type { Clock } from './lib/clock.ts';
 import { AppError, isPrismaErrorCode } from './lib/errors.ts';
 import type { Logger } from './lib/logger.ts';
 import type { Repositories, TransactionManager } from './repositories/types.ts';
+import { createAdminRoutes } from './routes/admin.ts';
+import {
+  buildResponseMeta,
+  createActorMiddleware,
+  type AppEnv,
+  type AppVariables,
+} from './routes/context.ts';
+import { createEventsRoutes } from './routes/events.ts';
+import { createReservationsRoutes } from './routes/reservations.ts';
+import { createUsersRoutes } from './routes/users.ts';
+import { AdminService } from './services/admin-service.ts';
+import { EventService } from './services/event-service.ts';
+import { ReservationService } from './services/reservation-service.ts';
+import { UserService } from './services/user-service.ts';
+
+export type { AppVariables };
 
 /** `createApp` 依赖注入契约。 */
 export interface AppDependencies {
@@ -22,22 +38,59 @@ export interface AppDependencies {
   dbPoolMax: number;
   workerEnabled: boolean;
   getLastWorkerRunAt: () => Date | null;
+  /** 可选巡检完成时间戳回调（用于将手动巡检时间同步给宿主运行态）。 */
+  onWorkerRun?: (runAt: Date) => void;
+  /** 可选预构造的 ReservationService（便于 server.ts 与 Worker 共享同一实例）。 */
+  reservationService?: ReservationService;
   checkDbHealth: () => Promise<boolean>;
 }
 
-/** Hono 上下文扩展变量类型。 */
-export interface AppVariables {
-  requestId: string;
-}
-
 /**
- * 组装 Hono 应用实例（包含全局 requestId、结构化请求日志、统一错误处理与 `/api/health` 路由）。
+ * 组装 Hono 应用实例（包含全局 requestId、结构化请求日志、统一错误处理与全部 12 个 P0 REST 路由）。
  *
  * @param deps 注入的时钟、仓储、事务管理器与运行时配置。
  * @returns 已组装完成的 Hono 应用实例。
  */
-export function createApp(deps: AppDependencies): Hono<{ Variables: AppVariables }> {
-  const app = new Hono<{ Variables: AppVariables }>();
+export function createApp(deps: AppDependencies): Hono<AppEnv> {
+  const app = new Hono<AppEnv>();
+
+  let localLastWorkerRunAt: Date | null = null;
+  const resolveLastWorkerRunAt = (): Date | null => {
+    const external = deps.getLastWorkerRunAt();
+    if (external && localLastWorkerRunAt) {
+      return external.getTime() >= localLastWorkerRunAt.getTime()
+        ? external
+        : localLastWorkerRunAt;
+    }
+    return external ?? localLastWorkerRunAt;
+  };
+  const recordWorkerRun = (runAt: Date): void => {
+    localLastWorkerRunAt = runAt;
+    deps.onWorkerRun?.(runAt);
+  };
+
+  const userService = new UserService({ repos: deps.repos });
+  const eventService = new EventService({
+    repos: deps.repos,
+    clock: deps.clock,
+  });
+  const reservationService =
+    deps.reservationService ??
+    new ReservationService({
+      repos: deps.repos,
+      txManager: deps.txManager,
+      clock: deps.clock,
+      logger: deps.logger,
+      onWorkerRun: recordWorkerRun,
+    });
+  const adminService = new AdminService({
+    txManager: deps.txManager,
+    reservationService,
+    clock: deps.clock,
+    logger: deps.logger,
+  });
+
+  const requireActor = createActorMiddleware(userService);
 
   app.use('*', cors());
 
@@ -140,7 +193,7 @@ export function createApp(deps: AppDependencies): Hono<{ Variables: AppVariables
         message: err instanceof Error ? err.message : String(err),
       });
     }
-    const lastRun = deps.getLastWorkerRunAt();
+    const lastRun = resolveLastWorkerRunAt();
     return c.json({
       data: {
         status: 'ok' as const,
@@ -148,12 +201,46 @@ export function createApp(deps: AppDependencies): Hono<{ Variables: AppVariables
         workerEnabled: deps.workerEnabled,
         lastWorkerRunAt: lastRun ? lastRun.toISOString() : null,
       },
-      meta: {
-        requestId: c.get('requestId'),
-        serverTime: deps.clock.now().toISOString(),
-      },
+      meta: buildResponseMeta(c, deps.clock),
     });
   });
+
+  app.route(
+    '/api/users',
+    createUsersRoutes({
+      userService,
+      clock: deps.clock,
+    }),
+  );
+
+  app.route(
+    '/api/events',
+    createEventsRoutes({
+      eventService,
+      reservationService,
+      clock: deps.clock,
+      getLastWorkerRunAt: resolveLastWorkerRunAt,
+      requireActor,
+    }),
+  );
+
+  app.route(
+    '/api/reservations',
+    createReservationsRoutes({
+      reservationService,
+      clock: deps.clock,
+      requireActor,
+    }),
+  );
+
+  app.route(
+    '/api/admin',
+    createAdminRoutes({
+      adminService,
+      clock: deps.clock,
+      requireActor,
+    }),
+  );
 
   return app;
 }
