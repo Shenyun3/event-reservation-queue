@@ -1,0 +1,19 @@
+{
+  "name": "queue-reservation",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "packageManager": "pnpm@12.21.0",
+  "engines": {
+    "node": ">=26.0.0"
+  },
+  "scripts": {
+    "dev": "bash scripts/dev.sh",
+    "typecheck": "pnpm -r typecheck",
+    "build": "pnpm --filter @queue-reservation/backend build && pnpm --filter @queue-reservation/frontend build",
+    "test": "pnpm --filter @queue-reservation/backend test",
+    "db:generate": "pnpm --filter @queue-reservation/backend db:generate",
+    "db:migrate": "pnpm --filter @queue-reservation/backend db:migrate",
+    "db:seed": "pnpm --filter @queue-reservation/backend db:seed"
+  }
+}

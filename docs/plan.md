@@ -47,22 +47,22 @@
 
 > **独占范围**：根配置文件、`packages/shared/**`、`backend/prisma/**`、`backend/prisma.config.ts`、`backend/src/lib/**`、`backend/src/repositories/**`、`backend/tests/integration/helpers/**`、`frontend/` 基础脚手架与 `src/components/ui/**`。
 
-- [ ] **1.1 根 Monorepo 与脚本基座**
+- [x] **1.1 根 Monorepo 与脚本基座**
   - 创建根 `package.json`（锁定 `"packageManager": "pnpm@12.21.0"`，配置 `dev`、`build`、`typecheck`、`test`、`db:migrate`、`db:seed`、`db:generate` 脚本）、`pnpm-workspace.yaml`、`tsconfig.base.json`、`.env.example`。
   - 更新 `.gitignore`：忽略 `node_modules/`、`dist/`、`.logs/`、`backend/src/generated/prisma/`、`.env`。
   - 提供开发启动脚本将前后端日志分别实时写入 `.logs/backend.log` 与 `.logs/frontend.log`。
-- [ ] **1.2 `packages/shared` 单一真实契约（source-only，禁 TS `enum`）**
+- [x] **1.2 `packages/shared` 单一真实契约（source-only，禁 TS `enum`）**
   - `packages/shared/package.json` 声明 `exports: { ".": "./src/index.ts" }`。
   - `src/enums.ts`：用 `z.enum([...])` + `as const` 定义 `UserRole`、`ReservationStatus`、`AuditTrigger`、`AvailabilityStatus`（`AVAILABLE | WAITLIST_ONLY | CLOSED`）、`AdminEventTab`（`OCCUPIED | WAITLISTED | CLOSED | ALL`）、`MyReservationStatusFilter`（`ALL | PENDING_CONFIRM | CONFIRMED | WAITLISTED | CLOSED`）。**严禁使用 TS `enum` / `namespace` / 参数属性**。
   - `src/errors.ts`：定义全部 12 个稳定 `ErrorCode`（含 `SERVICE_BUSY`）与 `ApiErrorBodySchema`。
   - `src/envelope.ts`：定义泛型 `{ data, meta? }` 成功信封与 `{ error }` 错误信封 Schema。
   - `src/schemas/`：按域拆分 `user.ts`、`event.ts`、`reservation.ts`、`audit.ts`、`admin.ts`、`stress.ts` 请求/响应 Zod Schema 与导出 TypeScript 类型（严格区分 `PublicEventDto` 与 `AdminEventDto`、区分 `USER` 与 `ADMIN` 取消响应）。
-- [ ] **1.3 Prisma 7 数据模型、物理 `CHECK` 迁移与 Seed**
+- [x] **1.3 Prisma 7 数据模型、物理 `CHECK` 迁移与 Seed**
   - 创建 `backend/prisma.config.ts`（`datasource.url = env('DATABASE_URL')`，`migrations.seed = 'tsx prisma/seed.ts'`）。
   - 创建 `backend/prisma/schema.prisma`（`provider = "prisma-client"`、`output = "../src/generated/prisma"`、`datasource db` 不写 `url`；完整映射 `User`、`Event`、`Reservation`（含 `waitlistSeq` + `@@unique([eventId, waitlistSeq])` + `@@index([eventId, status, waitlistSeq])`）、`ReservationAuditLog`）。
   - 通过 `prisma migrate dev --create-only` 生成首份受版本控制的 `migration.sql`，手工追加 [docs/database.md](file:///home/shenyun/dev/queue-reservation/docs/database.md) §3.3 与 §3.4 定义的全部 `events` 与 `reservations` 物理 `CHECK` 约束，再执行 `prisma migrate deploy` 与 `prisma generate`。
   - 实现 `backend/prisma/seed.ts`：对齐 `docs/database.md` §5（6 常规用户、2 活动 `evt-1` `confirmTimeoutSec=600, lockVersion=3` / `evt-2` `confirmTimeoutSec=120, lockVersion=4`、7 预约单含 `res-106` 剩余 `110s` 与 `res-107` `waitlistSeq=4`、11 条审计日志）；启动时若库非空仅 `upsert` 6 用户后跳过（幂等不覆盖运行数据）；导出 `seedDatabase(tx, clock)` 供 `reset-seed` 复用。
-- [ ] **1.4 后端核心基础设施、仓储接口与 `createApp` DI 工厂**
+- [x] **1.4 后端核心基础设施、仓储接口与 `createApp` DI 工厂**
   - `backend/src/lib/env.ts`（Zod 校验 `DATABASE_URL`、`DATABASE_URL_TEST`、`DB_POOL_MAX=30`、`PORT=3000`、`ENABLE_EXPIRATION_WORKER=true`）。
   - `backend/src/lib/prisma.ts`：创建 `@prisma/adapter-pg` + `pg` Pool（`max: env.DB_POOL_MAX`）。
   - `backend/src/lib/clock.ts`：`Clock` 接口、`SystemClock`、测试用可推进时间的 `FakeClock`。
@@ -71,17 +71,17 @@
   - `backend/src/repositories/`：定义 `UserRepository`、`EventRepository`（含 `lockForUpdate`、`lockAllForUpdateAsc`、`adjustCounts`）、`ReservationRepository`（含 `findOverduePendingByEvent`、`findOverdueEventIdsGroupBy`、`findNextWaitlisted`、`countWaitlistedByEvent`、`countActualOccupiedByEvent`、`findWaitlistSeqsByEvent`）、`AuditLogRepository`、`TransactionManager` 接口及 Prisma 实现（`PrismaTransactionManager` 配置 `{ maxWait: 10_000, timeout: 10_000 }`）。
   - `backend/src/app.ts`：导出 `createApp(deps)` DI 工厂骨架与 `/api/health` 路由。
   - `backend/tests/integration/helpers/db.ts`：实现 `resetTestDb()`（使用 `DATABASE_URL_TEST` 执行 `TRUNCATE TABLE "reservation_audit_logs", "reservations", "events", "users" RESTART IDENTITY CASCADE`）与 `assertEventInvariants(prisma, eventId, now)`（断言全部 4 条数据库不变量）。
-- [ ] **1.5 前端 Vite + React + Tailwind + shadcn/ui 脚手架**
+- [x] **1.5 前端 Vite + React + Tailwind + shadcn/ui 脚手架**
   - 初始化 `frontend/`（React 19 / TypeScript / Vite / Tailwind CSS / React Router / TanStack Query），配置 Vite `/api` 代理到 `http://localhost:3000`。
   - 安装并落盘 `frontend/src/components/ui/` 原语（`button`、`card`、`badge`、`dialog`、`sheet`、`table`、`tabs`、`input`、`select`、`label`、`skeleton`、`sonner`/Toast 等，保持领域无关）。
   - 实现 `frontend/src/lib/api-client.ts`（自动注 `X-User-Id`、统一解包 `{ data, meta }`、维护 `serverTime` 偏移校准工具、封装 `Idempotency-Key` 生命周期管理工具与 `ApiError`）及 `frontend/src/lib/user-context.tsx`（当前模拟身份上下文，持久化于 `localStorage`）。
 
 **Phase 1 验收门禁**：
-- [ ] PostgreSQL 17 已就绪（开发库与 `DATABASE_URL_TEST` 均已跑通 `prisma migrate deploy`），物理 `CHECK` 约束已生效（实测插入违背约束的记录被 DB 拒绝）。
-- [ ] `pnpm --filter @queue-reservation/backend db:seed` 连续执行两次均退出码 `0` 且无重复脏数据。
-- [ ] `pnpm typecheck` 与 `pnpm --filter @queue-reservation/frontend build` 退出码 `0`。
-- [ ] `createApp({ clock: fakeClock, ... })` 在 Vitest 冒烟测试中 `GET /api/health` 返回 `200`。
-- [ ] 通过只读 `phase-review` 门禁检查（Pass 1 & Pass 2 无 P0/P1）。
+- [x] PostgreSQL 17 已就绪（开发库与 `DATABASE_URL_TEST` 均已跑通 `prisma migrate deploy`），物理 `CHECK` 约束已生效（实测插入违背约束的记录被 DB 拒绝）。
+- [x] `pnpm --filter @queue-reservation/backend db:seed` 连续执行两次均退出码 `0` 且无重复脏数据。
+- [x] `pnpm typecheck` 与 `pnpm --filter @queue-reservation/frontend build` 退出码 `0`。
+- [x] `createApp({ clock: fakeClock, ... })` 在 Vitest 冒烟测试中 `GET /api/health` 返回 `200`。
+- [x] 通过只读 `phase-review` 门禁检查（Pass 1 & Pass 2 无 P0/P1）。
 
 ---
 

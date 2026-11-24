@@ -1,0 +1,10 @@
+packages:
+  - "packages/*"
+  - "backend"
+  - "frontend"
+
+allowBuilds:
+  "@prisma/engines": true
+  "@tailwindcss/oxide": true
+  esbuild: true
+  prisma: true
