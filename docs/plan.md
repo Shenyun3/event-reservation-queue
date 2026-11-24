@@ -165,20 +165,20 @@
 > - **`wt-backend-p1`** 仅修改 `backend/src/services/stress-service.ts`、`backend/src/routes/stress.ts`、`backend/src/app.ts`（仅挂载压测路由）、`backend/tests/integration/stress.test.ts`。
 > - **`wt-frontend-p1`** 仅修改 `frontend/src/features/stress-test/**`、`frontend/src/App.tsx`（仅挂载 `/stress-test` 路由）。
 
-- [ ] **3A.1 后端 P1 压测接口与测试（`wt-backend-p1`）**
+- [x] **3A.1 后端 P1 压测接口与测试（`wt-backend-p1`）**
   - 实现 `DELETE /api/events/:eventId/reservations`（`ADMIN` 专属）：事务内先 `lockForUpdate(eventId)`，按 `reservation_audit_logs -> reservations` 删除并归零 `confirmedCount = 0, pendingCount = 0`。
   - 实现 `POST /api/events/:eventId/simulate-burst`（`ADMIN` 专属）：校验 `concurrency` 位于 `1 ~ min(25, DB_POOL_MAX - 5)`；批量准备 `isSimulated = true` 虚拟用户（`sim-${batchId}-${i}`、`并发用户 #01..`、`sim-${batchId}-${i}@sim.local`）；使用 `Promise.all` 同毫秒并发调用真实 `ReservationService.createReservation`；基于 **`Reservation` 表真实行数**计算 `summary.oversold` 并返回完整逐笔战报。
   - 新增 `backend/tests/integration/stress.test.ts`：覆盖清空活动 + `simulate-burst(concurrency=20)` 抢 `capacity=5`、`oversold === false`、`assertEventInvariants` 通过及 `GET /api/users` 不含压测虚拟用户。
-- [ ] **3B.1 前端 P1 20 人并发压测实验室（`wt-frontend-p1`，对齐 `demo/stress-test.html`）**
+- [x] **3B.1 前端 P1 20 人并发压测实验室（`wt-frontend-p1`，对齐 `demo/stress-test.html`）**
   - 实现 `/stress-test` 页面（`ADMIN` 专属守卫）：活动选择下拉、并发人数输入（`1 ~ 25`，默认 `20`）、「清空该活动预约」按钮、「发起并发抢购」按钮。
   - 展示目标活动实时 KPI、强一致无超卖徽标、本次压测战报汇总与逐笔明细表（序号、模拟用户、`Idempotency-Key`、结果状态标签、候补顺位、单笔耗时、点击打开 `AuditDrawer` 查看审计时间线）。
-- [ ] **3.2 全栈端到端联调冒烟（主 Agent）**
+- [x] **3.2 全栈端到端联调冒烟（主 Agent）**
   - 本地拉起完整服务，对照 `demo/` 完整走查：User 预约/双击幂等/倒计时/确认/取消/我的预约/审计抽屉 + Admin 看板/新建 `maxPerUser=2` 活动/代确认/强制取消/手动巡检/20 人并发压测/重置演示数据；检查 `.logs/backend.log` 与 `.logs/frontend.log` 零异常。
 
 **Phase 3 验收门禁**：
-- [ ] `pnpm typecheck && pnpm build && pnpm --filter @queue-reservation/backend test` 退出码 `0`。
-- [ ] 压测页实测「清空 → 20 路并发抢 5 席」战报显示 `5 PENDING_CONFIRM + 15 WAITLISTED + 0 FAILED + 强一致无超卖`，且 `GET /api/users` 仍仅返回 6 个常规账号。
-- [ ] 通过只读 `phase-review` 门禁检查（Pass 1 & Pass 2 无 P0/P1）。
+- [x] `pnpm typecheck && pnpm build && pnpm --filter @queue-reservation/backend test` 退出码 `0`。
+- [x] 压测页实测「清空 → 20 路并发抢 5 席」战报显示 `5 PENDING_CONFIRM + 15 WAITLISTED + 0 FAILED + 强一致无超卖`，且 `GET /api/users` 仍仅返回 6 个常规账号。
+- [x] 通过只读 `phase-review` 门禁检查（Pass 1 & Pass 2 无 P0/P1）。
 
 ---
 

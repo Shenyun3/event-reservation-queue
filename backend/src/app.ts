@@ -48,7 +48,7 @@ export interface AppDependencies {
 }
 
 /**
- * 组装 Hono 应用实例（包含全局 requestId、结构化请求日志、统一错误处理与全部 12 个 P0 REST 路由）。
+ * 组装 Hono 应用实例（包含全局 requestId、结构化请求日志、统一错误处理与全部 P0/P1 REST 路由）。
  *
  * @param deps 注入的时钟、仓储、事务管理器与运行时配置。
  * @returns 已组装完成的 Hono 应用实例。

@@ -447,7 +447,14 @@ export function StressTestPage() {
         </>
       )}
 
-      <Dialog open={clearDialogOpen} onOpenChange={setClearDialogOpen}>
+      <Dialog
+        open={clearDialogOpen}
+        onOpenChange={(open) => {
+          if (!clearMutation.isPending) {
+            setClearDialogOpen(open);
+          }
+        }}
+      >
         <DialogContent>
           <DialogHeader>
             <DialogTitle>确认清空该活动全部预约？</DialogTitle>
