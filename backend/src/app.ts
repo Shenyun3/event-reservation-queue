@@ -1,5 +1,5 @@
 /**
- * Hono 应用 DI 工厂：组装全局中间件、统一错误处理、服务用例与全部 P0 REST 路由。
+ * Hono 应用 DI 工厂：组装全局中间件、统一错误处理、服务用例与全部 P0/P1 REST 路由。
  * 供 `server.ts` 与 Vitest 集成测试进程内 `app.request()` 共享。
  */
 import { randomUUID } from 'node:crypto';
@@ -21,10 +21,12 @@ import {
 } from './routes/context.ts';
 import { createEventsRoutes } from './routes/events.ts';
 import { createReservationsRoutes } from './routes/reservations.ts';
+import { createStressRoutes } from './routes/stress.ts';
 import { createUsersRoutes } from './routes/users.ts';
 import { AdminService } from './services/admin-service.ts';
 import { EventService } from './services/event-service.ts';
 import { ReservationService } from './services/reservation-service.ts';
+import { StressService } from './services/stress-service.ts';
 import { UserService } from './services/user-service.ts';
 
 export type { AppVariables };
@@ -94,6 +96,14 @@ export function createApp(deps: AppDependencies): Hono<AppEnv> {
     reservationService,
     clock: deps.clock,
     logger: deps.logger,
+  });
+  const stressService = new StressService({
+    repos: deps.repos,
+    txManager: deps.txManager,
+    reservationService,
+    clock: deps.clock,
+    logger: deps.logger,
+    dbPoolMax: deps.dbPoolMax,
   });
 
   const requireActor = createActorMiddleware(userService);
@@ -226,6 +236,15 @@ export function createApp(deps: AppDependencies): Hono<AppEnv> {
       reservationService,
       clock: deps.clock,
       getLastWorkerRunAt: resolveLastWorkerRunAt,
+      requireActor,
+    }),
+  );
+
+  app.route(
+    '/api/events',
+    createStressRoutes({
+      stressService,
+      clock: deps.clock,
       requireActor,
     }),
   );
