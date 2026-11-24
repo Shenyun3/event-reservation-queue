@@ -17,7 +17,7 @@ src/
 - **依赖方向**：`routes -> services -> repositories -> prisma`。严禁在 `routes` 中直接调用 `prisma`，严禁把 HTTP `Request/Response` 对象传入 `services` 或 `repositories`。
 
 ## 2. 数据访问、事务与错误契约
-- **ORM Only**：所有数据库读写通过 Prisma Client 完成，禁止拼接或执行裸 SQL。
+- **ORM Only**：运行时业务代码（`src/**`）所有数据库读写通过 Prisma Client 完成，禁止拼接或执行裸 SQL；仅允许两类非运行时例外：(1) 受版本控制的 Prisma Migration DDL（如 `CHECK` 约束）；(2) 集成测试夹具（`tests/**`）在独立测试库 `DATABASE_URL_TEST` 上执行 `TRUNCATE ... RESTART IDENTITY CASCADE` 清库。
 - **事务原子性**：涉及多表或状态与关联记录同时更新的写操作，必须在 Service 编排下通过 `prisma.$transaction` 保证原子性；慢速外部/AI 模型调用必须放在数据库事务之外。
 - **统一错误响应**：定义稳定的业务错误码与统一 JSON 错误体（如 `{ error: { code, message, details? } }`）；500 未知异常记录完整堆栈到日志，严禁向前端透出数据库内部报错或堆栈。
 - **对象存储降级**：文件持久化走 `storage/` 接口，数据库仅存 `storageKey`、`mimeType`、`sizeBytes` 等元数据。
